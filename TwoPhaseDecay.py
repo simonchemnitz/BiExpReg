@@ -204,74 +204,21 @@ if __name__ == "__main__":
     y_noise = 0.2 * rng.normal(size=xdata.size)
     ydata = y + y_noise
 
-    # bi = bi_exp_regression(x=xdata, y=ydata, iterations=100, verbose=True)
-    # bi.fit()
-    # print(bi.best_params)
-    # print()
-    # print()
-    # f = bi.model_function()
-    # print(f(10))
-
-    # fig = plt.figure()
-
-    # print("New model")
-    # for i in range(1):
-    #     start = dt.datetime.now()
-    #     reg = ExponentialRegression(iterations=200)
-    #     reg.fit(xdata,ydata)
-    #     print(reg.coef_)
-    #     print(reg.kinetics)
-
-    #     end = (dt.datetime.now()-start).total_seconds()
-    #     print("Runtime: ", end)
-
-    # #Plot model
-    #     plt.scatter(xdata, ydata, c="gray")
-    #     plt.plot(xdata, reg.model(xdata))
-    # plt.show()
-
-    # model = reg.model
-    # print(model(2))
-
-    # DOSE DATA
-    import pandas as pd
-
-    df = pd.read_excel("dosedata.xlsx")
-    df["x"] = df["x"] / 3600
     fig = plt.figure()
-    plot_x = np.linspace(df["x"].min(), df["x"].max(), 500)
-    plt.scatter(df["x"], df["y"], c="gray")
 
-    kinetics = []
-    coefs = []
-
-    for i in range(50):
+    for i in range(1):
         start = dt.datetime.now()
         reg = ExponentialRegression(iterations=200)
-        reg.fit(df["x"], df["y"], early_stop=True)
-        end = (dt.datetime.now() - start).total_seconds()
-        kinetics.append(reg.kinetics)
-        coefs.append(reg.coef_)
-        print()
-        print("RUNTIME: ", end)
-        print(reg.kinetics)
+        reg.fit(xdata,ydata)
         print(reg.coef_)
-        print()
-        plt.plot(plot_x, reg.model(plot_x), alpha=0.1, c="b")
+        print(reg.kinetics)
+        
+        end = (dt.datetime.now()-start).total_seconds()
+        print("Runtime: ", end)
+        
+        plt.scatter(xdata, ydata, c="gray")
+        plt.plot(xdata, reg.model(xdata))
     plt.show()
 
-    kinetics = np.array(kinetics)
-    coefs = np.array(coefs)
-
-    print()
-    print()
-    print("Kinetics:")
-    print("min: ", np.min(kinetics, axis=0))
-    print("mean: ", np.mean(kinetics, axis=0))
-    print("max: ", np.max(kinetics, axis=0))
-    print()
-    print()
-    print("coefs:")
-    print("min: ", np.min(coefs, axis=0))
-    print("mean: ", np.mean(coefs, axis=0))
-    print("max: ", np.max(coefs, axis=0))
+    model = reg.model
+    print(model(2))
