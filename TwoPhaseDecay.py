@@ -1,270 +1,196 @@
+import datetime as dt
+import random
+import warnings
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy.optimize as op
 
-import multiprocessing as mp
-import warnings
+
 warnings.filterwarnings("ignore")
 
 
-
-def exp_decay(x, a, b, c):
+class ExponentialRegression:
     """
-    Normal exponential decay
-    """
-    return c + a * np.exp(-b * x)
+    Ordinary least squares bi-exponential regression
 
-
-def bi_exp_decay(x, Y0, Plateau, PercentFast, b1, b2):
-    """
-    bi-exponential decay / twophase decay
-    """
-    return (
-        Plateau
-        + ((Y0 - Plateau) * PercentFast / 100) * np.exp(-b1 * x)
-        + ((Y0 - Plateau) - (((Y0 - Plateau) * PercentFast / 100))) * np.exp(-b2 * x)
-    )
-
-
-class bi_exp_regression:
-    """
-    Perform bi-exponential fit of input x,y
-    Multiple fits are made and the model with lowest sum of squares is chosen
-    as the best model
+    ExponentialRegression fits a bi exponential model with coefficients w = #TODO
+    to minimize the residual sum of squares between the observed targets in
+    the dataset, and the targets predicted by the exponential approximation.
 
     Parameters:
     -----------
-    x : array-like
-        x-values
-    y : array-like
-        y-values
+    p0 : list or Nonetype, default = None
+        intial parameters
+
     iterations : int
-        number of times to fit data
-    p0 : list
-        list of initial paramters
-    verbose : bool
-        whether or not to verbose
+        number of fits to perform before selecting best model
 
     Attributes:
     -----------
-    best_model : list
-        list of the best parameters to use
-    plot_best_model : matplot.lib figure
-        plots the data and the best model
+    coef_ : array of shape ()#TODO num of parameters
+        Estimated coefficients for the linear regression problem
     """
 
-    def __init__(self, x, y, iterations, p0=None, verbose=False, max_n_fits=5):
-        self.x = x
-        self.y = y
+    def __init__(self, p0=None, iterations=100):
+        self.p0 = p0
         self.iterations = iterations
-        self.verbose = verbose
 
-        self.initial_parameters = p0
-        self.found_parameters = {}
-        self.ssq = {}
-        self.best_params = []
+        self.coef_ = np.array([])
+        self.ssq_opt = 99999999
+        self.model_number_opt = 0
 
-        self.fig = 0
+        self.kinetics = np.array([])
 
-        self.n_fits = 0
-        self.max_n_fits = max_n_fits
+        self.refits = 0
 
-        self.multiparams = []
-
-    def validated(self):
+    def fit(self, x, y, early_stop=True):
         """
-        Check if x,y has same dimensions
+        Fit Bi-exponential model
+
+        Parameters:
+        -----------
+        x : array of shape (n_samples, 1)
+            Training data
+
+        y : array of shape (n_samples, 1)
+            Target Values
+
+        early_stop : Bool, default = True
+            stop fitting and return model if a better model has not been found in 10 iterations
+        Returns:
+        --------
+        self : object
+            Fitted Estimator.
         """
-        if not self.x.shape == self.y.shape:
-            print("Dimension Missmatch")
+        self.x = x.astype(float)
+        self.y = y.astype(float)
+        # if self.valid_input():
+        if self.p0 is None:
+            self.initial_fit()
+            self.initial_ssq()
+        for model_number in range(self.iterations):
+            try:
+                random.seed(dt.datetime.now())
+                p0 = self.p0 + np.random.normal(loc=0, scale=15, size=len(self.p0))
+                p_opt, p_cov, infodict, mesg, ier = op.curve_fit(
+                    f=self.bi_exp_decay,
+                    xdata=self.x,
+                    ydata=self.y,
+                    p0=p0,
+                    full_output=True,
+                    bounds=(0, [100, 100, 100, 100, 100]),
+                )
+            except:
+                continue
+            if self.valid_params(p_opt):
+                ssq = (infodict["fvec"] ** 2).mean()
+                if ssq < self.ssq_opt:
+                    self.ssq_opt = ssq
+                    self.coef_ = p_opt
+                    self.model_number_opt = model_number
+                elif (early_stop) and (
+                    np.abs(model_number - self.model_number_opt) > 25
+                ):
+                    print("Stopped early", model_number)
+                    break
+                else:
+                    # print("Could not fit model:", model_number)
+                    None
+        if len(self.coef_) > 0:
+            Y0, Plateau, PercentFast, KFast, KSlow = self.coef_
+            fraction_fast = (Y0 - Plateau) * PercentFast / 100
+            fraction_slow = (Y0 - Plateau) - (((Y0 - Plateau) * PercentFast / 100))
+            half_life_fast = np.log(2) / KFast
+            half_life_slow = np.log(2) / KSlow
+
+            self.kinetics = [
+                fraction_fast / 100,
+                fraction_slow / 100,
+                half_life_fast,
+                half_life_slow,
+            ]
+
+            self.model = lambda x: self.bi_exp_decay(
+                x, Y0, Plateau, PercentFast, KFast, KSlow
+            )
+
+        elif self.refits<3:
+            print("+------------------------------+")
+            print("| No model found fitting again |")
+            print("+------------------------------+")
+            self.fit(self.x, self.y)
+            self.refits = self.refits + 1
+
+    def valid_input(self):
+        """
+        Check if the input is valid
+        """
+        if len(self.x) != len(self.y):
+            print("Dimension missmatch")
+            print("Dimension of:")
+            print(" - x values: ", np.shape(self.x))
+            print(" - y values: ", np.shape(self.y))
             return False
 
-    def exp_fit(self):
+    def exp_decay(self, x, a, b, c):
         """
-        Perform normal exponential decay to get inital parameters
+        Normal exponential decay
         """
-        popt, pcov = op.curve_fit(f=exp_decay, xdata=self.x, ydata=self.y)
-        a, b, c = popt
-        self.initial_parameters = [np.max(self.y), c, a, b, b]
+        return c + a * np.exp(-b * x)
 
-    def bi_exp_fit(self, i):
+    def bi_exp_decay(self, x, Y0, Plateau, PercentFast, KFast, KSlow):
         """
-        Perform bi-exponential decay fit of data
+        bi-exponential decay / twophase decay
         """
-        if self.initial_parameters is None:
-            print("Initial parameters not set")
-            print("Using parameters from single exp decay")
-            self.exp_fit()
-        p0 = self.initial_parameters + np.random.normal(
-            loc=0, scale=20, size=len(self.initial_parameters)
+        return (
+            Plateau
+            + ((Y0 - Plateau) * PercentFast / 100) * np.exp(-KFast * x)
+            + ((Y0 - Plateau) - (((Y0 - Plateau) * PercentFast / 100)))
+            * np.exp(-KSlow * x)
         )
-        popt, pcov = op.curve_fit(f=bi_exp_decay, xdata=self.x, ydata=self.y, p0=p0)
-        Y0, Plateau, PercentFast, b1, b2 = popt
-        conditions = (Plateau > 0) & (100 > PercentFast > 0) & (b1 > b2 > 0)
-        if conditions:
-            self.found_parameters[i] = popt
-            self.multiparams.append(popt)
-            # print()
-            # print("------------------------------------------------------------------------------------")
-            # print(popt)
-            # print()
-            # print(self.found_parameters)
-            # print(self.multiparams)
-            # print("------------------------------------------------------------------------------------")
-            # print()
-            return (popt, i)
 
-    def sum_squares_model(self, param):
+    def initial_fit(self):
         """
-        Check the sum of squares for found parameters
+        Fit a standard exponential model and save the optimal parameters
         """
-        # Unpack parameters
-        Y0, Plateau, PercentFast, KFast, KSlow = param
-        # calculate y values from function
-        yfunc = list(
-            map(
-                lambda x: bi_exp_decay(x, Y0, Plateau, PercentFast, KFast, KSlow),
-                self.x,
-            )
-        )
-        # Convert to numpy array
-        yfunc = np.array(yfunc)
+        p_opt, p_cov = op.curve_fit(f=self.exp_decay, xdata=self.x, ydata=self.y)
+        a, b, c = p_opt
+        max_y = np.max(self.y)
+        self.p0 = [max_y, c, a, b * 3, b]
 
-        # Difference
-        diff = self.y - yfunc
-        # Squared Difference
-        sqdiff = diff * diff
-        # Sum of squares
-        ssq = np.sum(sqdiff)
-        return ssq
+    def initial_ssq(self):
+        """
+        Initial SSq value from the initial fit p0
+        """
+        Y0, plateau, pfast, kfast, kslow = self.p0
+        ys = self.bi_exp_decay(self.x, Y0, plateau, pfast, kfast, kslow)
 
-    def update_ssq(self):
-        """
-        For each model parameter found calculate the sum of suqares
-        """
-        for modelID, model_param in self.found_parameters.items():
-            # Calculate ssq
-            ssq = self.sum_squares_model(model_param)
-            # Add to dictionary
-            self.ssq[modelID] = ssq
+        self.ssq_opt = np.mean((self.y - ys) ** 2)
 
-    def best_model(self):
+    def valid_params(self, params):
         """
-        Get the parameters of the best model
+        Validate if a list of parameters are valid for a bi exponential model
         """
-        self.update_ssq()
-        try:
-            best_model_id = min(self.ssq, key=self.ssq.get)
-            best_params = self.found_parameters[best_model_id]
-            self.best_params = best_params
-            Y0, Plateau, PercentFast, KFast, KSlow = best_params
-            if self.verbose:
-                print()
-                print("Model ID", best_model_id)
-                print("Y0: ", Y0)
-                print("Plateau: ", Plateau)
-                print("PercentFast: ", PercentFast)
-                print("KFast", KFast)
-                print("KSlow", KSlow)
-                print()
-                print("Faction Fast: ", ((Y0 - Plateau) * PercentFast / 100))
-                print(
-                    "Faction Slow: ",
-                    ((Y0 - Plateau) - (((Y0 - Plateau) * PercentFast / 100))),
-                )
-                print("HalfLife Fast: ", np.log(2) / KFast)
-                print("HalfLife Slow: ", np.log(2) / KSlow)
-                print()
-        except:
-            print("No model found run again")
-            if self.n_fits < self.max_n_fits:
-                self.n_fits = self.n_fits + 1
-                self.fit()
-                # self.best_model()
-        return self.best_params
-
-    def multifit(self, i):
-        try:
-            res = self.bi_exp_fit(i=i)
-            return res
-        except:
-            if self.verbose:
-                print("Could not fit model: ", i)
-
-    def update_params(self, lst):
-        """
-        Update the found params dictionary
-        """
-        for result in lst:
-            popt, idx = result
-            self.found_parameters[idx] = popt
-
-    def fit(self):
-        """
-        Run <self.iterations> iterations of biexpfit in paralell
-        """
-        self.exp_fit()
-        with mp.Pool() as pool:
-            results = pool.map(self.multifit, [i for i in range(self.iterations)])
-        results = np.array(results)
-        results = [value for value in results if value is not None]
-        self.update_params(results)
-        self.update_ssq()
-        self.best_model()
-
-    def kinetics(self):
-        """
-        Return the special model kinetics
-        """
-        params = self.best_params
-        # Unpack parameters
         Y0, Plateau, PercentFast, KFast, KSlow = params
-        fraction_fast = (Y0 - Plateau) * PercentFast / 100
-        fraction_slow = (Y0 - Plateau) - (((Y0 - Plateau) * PercentFast / 100))
-        half_life_fast = np.log(2) / KFast
-        half_life_slow = np.log(2) / KSlow
-        if self.verbose:
-            print()
-            print("Y0: ", Y0)
-            print("Plateau: ", Plateau)
-            print("PercentFast: ", PercentFast)
-            print("KFast", KFast)
-            print("KSlow", KSlow)
-            print()
-            print("Faction Fast: ", fraction_fast)
-            print("Faction Slow: ", fraction_slow)
-            print("HalfLife Fast: ", half_life_fast)
-            print("HalfLife Slow: ", half_life_slow)
-            print()
-        return fraction_fast, fraction_slow, half_life_fast, half_life_slow
+        isValid = (Plateau > 0) & (100 > PercentFast > 0) & (KFast > KSlow > 0)
+        return isValid
 
-    def plot_best_model(self):
+    def model(self):
         """
-        plot the best model
+        Return the model as a lambda expression
         """
-        param = self.best_params
-        # Unpack parameters
-        Y0, Plateau, PercentFast, KFast, KSlow = param
-        # x,y values to plot
-        xs = np.linspace(np.min(self.x), np.max(self.x), 200)
-        # calculate y values from function
-        ys = list(
-            map(lambda x: bi_exp_decay(x, Y0, Plateau, PercentFast, KFast, KSlow), xs)
+        params = self.coef_
+        Y0, Plateau, PercentFast, KFast, KSlow = params
+        return lambda x: self.bi_exp_decay(
+            x=x,
+            Y0=Y0,
+            Plateau=Plateau,
+            PercentFast=PercentFast,
+            KFast=KFast,
+            KSlow=KSlow,
         )
-
-        self.fig = plt.figure()
-        plt.scatter(self.x, self.y, c="gray", alpha=0.5)
-        plt.plot(xs, ys)
-        plt.title("Best Model")
-        plt.show()
-
-    def save_plot(self, filename):
-        """
-        Save the figure
-        """
-        if self.fig == 0:
-            self.plot_best_model()
-        self.fig.savefig(filename + ".png")
 
 
 if __name__ == "__main__":
@@ -278,9 +204,74 @@ if __name__ == "__main__":
     y_noise = 0.2 * rng.normal(size=xdata.size)
     ydata = y + y_noise
 
-    bi = bi_exp_regression(x=xdata, y=ydata, iterations=100, verbose=True)
-    bi.fit()
-    bi.plot_best_model()
-    print(bi.best_params)
+    # bi = bi_exp_regression(x=xdata, y=ydata, iterations=100, verbose=True)
+    # bi.fit()
+    # print(bi.best_params)
+    # print()
+    # print()
+    # f = bi.model_function()
+    # print(f(10))
+
+    # fig = plt.figure()
+
+    # print("New model")
+    # for i in range(1):
+    #     start = dt.datetime.now()
+    #     reg = ExponentialRegression(iterations=200)
+    #     reg.fit(xdata,ydata)
+    #     print(reg.coef_)
+    #     print(reg.kinetics)
+
+    #     end = (dt.datetime.now()-start).total_seconds()
+    #     print("Runtime: ", end)
+
+    # #Plot model
+    #     plt.scatter(xdata, ydata, c="gray")
+    #     plt.plot(xdata, reg.model(xdata))
+    # plt.show()
+
+    # model = reg.model
+    # print(model(2))
+
+    # DOSE DATA
+    import pandas as pd
+
+    df = pd.read_excel("dosedata.xlsx")
+    df["x"] = df["x"] / 3600
+    fig = plt.figure()
+    plot_x = np.linspace(df["x"].min(), df["x"].max(), 500)
+    plt.scatter(df["x"], df["y"], c="gray")
+
+    kinetics = []
+    coefs = []
+
+    for i in range(50):
+        start = dt.datetime.now()
+        reg = ExponentialRegression(iterations=200)
+        reg.fit(df["x"], df["y"], early_stop=True)
+        end = (dt.datetime.now() - start).total_seconds()
+        kinetics.append(reg.kinetics)
+        coefs.append(reg.coef_)
+        print()
+        print("RUNTIME: ", end)
+        print(reg.kinetics)
+        print(reg.coef_)
+        print()
+        plt.plot(plot_x, reg.model(plot_x), alpha=0.1, c="b")
+    plt.show()
+
+    kinetics = np.array(kinetics)
+    coefs = np.array(coefs)
+
     print()
     print()
+    print("Kinetics:")
+    print("min: ", np.min(kinetics, axis=0))
+    print("mean: ", np.mean(kinetics, axis=0))
+    print("max: ", np.max(kinetics, axis=0))
+    print()
+    print()
+    print("coefs:")
+    print("min: ", np.min(coefs, axis=0))
+    print("mean: ", np.mean(coefs, axis=0))
+    print("max: ", np.max(coefs, axis=0))
