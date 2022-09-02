@@ -1,7 +1,7 @@
 # BiExpReg
 Bi-exponential regression, (two-phase decay)
 
-Fits the model define by
+Fits the model defined by
 
 $SpanFast=(Y0-Plateau)\cdot PercentFast\cdot 0.01$
 
