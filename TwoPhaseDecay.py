@@ -205,20 +205,19 @@ if __name__ == "__main__":
     ydata = y + y_noise
 
     fig = plt.figure()
+    start = dt.datetime.now()
 
-    for i in range(1):
-        start = dt.datetime.now()
-        reg = ExponentialRegression(iterations=200)
-        reg.fit(xdata,ydata)
-        print(reg.coef_)
-        print(reg.kinetics)
-        
-        end = (dt.datetime.now()-start).total_seconds()
-        print("Runtime: ", end)
-        
-        plt.scatter(xdata, ydata, c="gray")
-        plt.plot(xdata, reg.model(xdata))
-    plt.show()
-
+    reg = ExponentialRegression(iterations=200)
+    reg.fit(xdata, ydata)
     model = reg.model
-    print(model(2))
+
+    print("Coeficients: ", reg.coef_)
+    print("Kinetics: ", reg.kinetics)
+    print("model evaluated at 3.1415: ", model(3.1415))
+
+    end = (dt.datetime.now() - start).total_seconds()
+    print("Runtime: ", end)
+
+    plt.scatter(xdata, ydata, c="gray")
+    plt.plot(xdata, reg.model(xdata))
+    plt.show()
